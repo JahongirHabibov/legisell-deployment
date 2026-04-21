@@ -286,8 +286,10 @@ services:
 volumes:
   legisell-db-data:
     name: legisell-prod-db-data
+    external: true
   legisell-redis-data:
     name: legisell-prod-redis-data
+    external: true
   legisell-prod-updater-state:
     name: legisell-prod-updater-state
 
