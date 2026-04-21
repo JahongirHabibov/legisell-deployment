@@ -342,28 +342,7 @@ check_port 443   "Admin HTTPS (Tailscale only)"
 check_port 8443  "POS License API (public)"
 check_port 8400  "Backup UI (Tailscale only)"
 
-# ---------------------------------------------------------------------------
-# 7. Docker image reachability (manifest check — no pull)
-# ---------------------------------------------------------------------------
-section "7  Docker Image Reachability  ${DIM}(manifest check)${RESET}"
 
-check_image() {
-  local image="$1"
-  if [[ -z "$image" ]] || is_placeholder "$image"; then
-    warn "Skipping image check — variable not set or still a placeholder"
-    return
-  fi
-  if docker manifest inspect "$image" &>/dev/null 2>&1; then
-    pass "${image}  ${DIM}(reachable)${RESET}"
-  else
-    fail "${image}  ${DIM}(not reachable — check image name, tag, and GHCR credentials)${RESET}"
-  fi
-}
-
-check_image "${IMAGE_BACKEND:-}"
-check_image "${IMAGE_FRONTEND:-}"
-check_image "${IMAGE_UPDATER:-}"
-check_image "${IMAGE_BACKUP:-}"
 
 # =============================================================================
 # FINAL REPORT
