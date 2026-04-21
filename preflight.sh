@@ -187,6 +187,13 @@ else
   mkdir -p "$BACKUPS_DIR"
   warn "./backups directory did not exist — created it"
 fi
+# The backup container runs as backupuser (UID 1000). Pre-set ownership so the
+# container can write backups and state.json without needing root at runtime.
+if chown 1000:1000 "$BACKUPS_DIR" 2>/dev/null; then
+  pass "./backups ownership set to UID/GID 1000 (backupuser)"
+else
+  warn "Could not chown ./backups to UID 1000 — re-run with sudo or the backup container may get Permission denied"
+fi
 
 # ---------------------------------------------------------------------------
 # 3. .env — Required variables
@@ -240,6 +247,15 @@ if [[ -f "$ENV_FILE" && -s "$ENV_FILE" ]]; then
   # Backup service
   check_var BACKUP_USER         "backup web UI username"
   check_var BACKUP_PASSWORD     "backup web UI password"
+  check_var BACKUP_DIR          "absolute container-side path for backup files"
+
+  # BACKUP_DIR must be absolute — the Pydantic validator in the image enforces this
+  BACKUP_DIR_VAL="${BACKUP_DIR:-}"
+  if [[ -n "$BACKUP_DIR_VAL" ]] && ! is_placeholder "$BACKUP_DIR_VAL"; then
+    if [[ "$BACKUP_DIR_VAL" != /* ]]; then
+      fail "BACKUP_DIR must be an absolute path (got: '${BACKUP_DIR_VAL}') — change to /backups"
+    fi
+  fi
 
   # Warn if JWT_SECRET == JWT_REFRESH_SECRET
   JS="${JWT_SECRET:-}"
