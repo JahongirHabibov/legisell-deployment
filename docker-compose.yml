@@ -195,7 +195,7 @@ services:
       # POS License API: publicly reachable (Nginx restricts to /api/v1/pos/ and /api/public/)
       - "0.0.0.0:8443:8443"
     volumes:
-      - ${SSL_CERT_DIR:-./ssl}:/etc/nginx/ssl:ro
+      - ${SSL_CERT_DIR:-/root/legisell-deployment/ssl}:/etc/nginx/ssl:ro
     networks:
       frontend-network:
         aliases:
@@ -230,7 +230,7 @@ services:
       database:
         condition: service_healthy
     volumes:
-      - ./backups:/backups
+      - /root/legisell-deployment/backups:/backups
     restart: always
     deploy:
       resources:
@@ -265,8 +265,8 @@ services:
         condition: service_started
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
-      - ./.env:/app/deployment/.env:rw
-      - ./docker-compose.yml:/app/deployment/docker-compose.yml:ro
+      - /root/legisell-deployment/.env:/app/deployment/.env:rw
+      - /root/legisell-deployment/docker-compose.yml:/app/deployment/docker-compose.yml:ro
       - legisell-prod-updater-state:/app/state
       - ${DOCKER_CONFIG_DIR:-~/.docker}:/root/.docker:ro
     restart: always
