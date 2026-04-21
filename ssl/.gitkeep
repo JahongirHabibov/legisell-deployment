@@ -1,0 +1,3 @@
+# Place fullchain.pem and privkey.pem here.
+# See .env.example (SSL_CERT_DIR) for generation instructions.
+# These files are excluded from version control via .gitignore.

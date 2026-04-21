@@ -1,0 +1,12 @@
+# Custom
+pos-deployment
+docker-image*
+backups
+
+# Environment — never commit real credentials
+.env
+
+# TLS certificates
+ssl/*.pem
+ssl/fullchain.*
+ssl/privkey.*
