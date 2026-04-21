@@ -1,0 +1,303 @@
+# Legisell — Production Stack
+#
+# Self-contained production deployment.
+# Images are pulled from GHCR — no source code required.
+#
+# Usage:
+#   docker login ghcr.io -u <github-username> --password-stdin
+#   cp .env.example .env && nano .env
+#   docker compose up -d
+#
+# Network layout:
+#   Port 443  → TAILSCALE_LOCAL_IP only  → Admin panel (VPN-only)
+#   Port 80   → TAILSCALE_LOCAL_IP only  → HTTP → HTTPS redirect (VPN-only)
+#   Port 8443 → 0.0.0.0 (public)        → POS License API
+
+name: legisell-prod
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+    tag: "{{.Name}}"
+
+services:
+  # ===========================================================================
+  # DATABASE — PostgreSQL 17
+  # ===========================================================================
+  database:
+    # Pinned digest — update deliberately when upgrading PostgreSQL.
+    image: postgres:17-alpine@sha256:6f30057d31f5861b66f3545d4821f987aacf1dd920765f0acadea0c58ff975b1
+    container_name: legisell-prod-database
+    hostname: legisell-database
+    env_file: .env
+    volumes:
+      - legisell-db-data:/var/lib/postgresql/data
+    networks:
+      backend-network:
+        aliases:
+          - legisell-database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+    logging: *default-logging
+
+  # ===========================================================================
+  # CACHE — Redis 8
+  # ===========================================================================
+  redis:
+    # Pinned digest — update deliberately when upgrading Redis.
+    image: redis:8-alpine@sha256:2afba59292f25f5d1af200496db41bea2c6c816b059f57ae74703a50a03a27d0
+    container_name: legisell-prod-redis
+    hostname: legisell-redis
+    # Maxmemory capped at 128 MB with LRU eviction; password appended only when set.
+    command: >-
+      sh -c "redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+      $${REDIS_PASSWORD:+--requirepass $$REDIS_PASSWORD}"
+    env_file: .env
+    volumes:
+      - legisell-redis-data:/data
+    networks:
+      backend-network:
+        aliases:
+          - legisell-redis
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli $${REDIS_PASSWORD:+-a $$REDIS_PASSWORD --no-auth-warning} ping | grep PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    logging: *default-logging
+
+  # ===========================================================================
+  # BACKEND — FastAPI (image from GHCR)
+  # ===========================================================================
+  backend:
+    image: ${IMAGE_BACKEND}
+    container_name: legisell-prod-backend
+    hostname: legisell-backend
+    env_file: .env
+    environment:
+      - APP_ENV=production
+      - WORKERS=2
+    networks:
+      frontend-network:
+        aliases:
+          - legisell-backend
+      backend-network:
+        aliases:
+          - legisell-backend
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: always
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+    logging: *default-logging
+
+  # ===========================================================================
+  # WORKER — Background Jobs / APScheduler (same image as backend)
+  # ===========================================================================
+  worker:
+    image: ${IMAGE_BACKEND}
+    container_name: legisell-prod-worker
+    hostname: legisell-worker
+    command: ["python", "worker.py"]
+    env_file: .env
+    environment:
+      - APP_ENV=production
+    networks:
+      backend-network:
+        aliases:
+          - legisell-worker
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Heartbeat file written every 60 s by the scheduler.
+    # Unhealthy if file is older than 120 s (= 2 missed intervals).
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/worker.healthy && test $(( $(date +%s) - $(cat /tmp/worker.healthy) )) -lt 120"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: always
+    stop_grace_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    logging: *default-logging
+
+  # ===========================================================================
+  # FRONTEND — Nginx (static build, no Node runtime; image from GHCR)
+  #
+  # Two port bindings implement network-level access control:
+  #   443/80  → Tailscale IP only  → Admin panel (invisible from public internet)
+  #   8443    → all interfaces     → POS License API only
+  # ===========================================================================
+  frontend:
+    image: ${IMAGE_FRONTEND}
+    container_name: legisell-prod-frontend
+    hostname: legisell-frontend
+    env_file: .env
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      # Admin UI: reachable only via Tailscale VPN
+      - "${TAILSCALE_LOCAL_IP}:443:443"
+      - "${TAILSCALE_LOCAL_IP}:80:80"
+      # POS License API: publicly reachable (Nginx restricts to /api/v1/pos/ and /api/public/)
+      - "0.0.0.0:8443:8443"
+    volumes:
+      - ${SSL_CERT_DIR:-./ssl}:/etc/nginx/ssl:ro
+    networks:
+      frontend-network:
+        aliases:
+          - legisell-frontend
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+    logging: *default-logging
+
+  # ===========================================================================
+  # BACKUP — PostgreSQL Backup & Restore Web UI (image from GHCR)
+  # Reachable at http://<TAILSCALE_LOCAL_IP>:8400 — VPN-only
+  # ===========================================================================
+  backup:
+    image: ${IMAGE_BACKUP}
+    container_name: legisell-prod-backup
+    hostname: legisell-backup
+    env_file: .env
+    ports:
+      - "${TAILSCALE_LOCAL_IP}:8400:8000"
+    networks:
+      backend-network:
+        aliases:
+          - legisell-backup
+    depends_on:
+      database:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    logging: *default-logging
+
+  # ===========================================================================
+  # UPDATER — System Update Manager via Admin UI (image from GHCR)
+  # Proxied by Nginx: /updater/ → legisell-updater:8200
+  # ===========================================================================
+  updater:
+    image: ${IMAGE_UPDATER}
+    container_name: legisell-prod-updater
+    hostname: legisell-updater
+    env_file: .env
+    networks:
+      backend-network:
+        aliases:
+          - legisell-updater
+      frontend-network:
+        aliases:
+          - legisell-updater
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - ./.env:/app/deployment/.env:rw
+      - ./docker-compose.yml:/app/deployment/docker-compose.yml:ro
+      - legisell-prod-updater-state:/app/state
+      - ${DOCKER_CONFIG_DIR:-~/.docker}:/root/.docker:ro
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+    logging: *default-logging
+
+# =============================================================================
+# VOLUMES — prod-prefixed names prevent collisions with dev volumes
+# =============================================================================
+volumes:
+  legisell-db-data:
+    name: legisell-prod-db-data
+  legisell-redis-data:
+    name: legisell-prod-redis-data
+  legisell-prod-updater-state:
+    name: legisell-prod-updater-state
+
+# =============================================================================
+# NETWORKS — segmented: frontend cannot reach DB/Redis directly
+# =============================================================================
+networks:
+  frontend-network:
+    name: legisell-prod-frontend-network
+    driver: bridge
+  backend-network:
+    name: legisell-prod-backend-network
+    driver: bridge
