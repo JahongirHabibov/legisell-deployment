@@ -2,6 +2,7 @@
 pos-deployment
 docker-image*
 backups
+guides
 
 # Environment — never commit real credentials
 .env
