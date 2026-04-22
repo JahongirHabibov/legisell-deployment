@@ -126,7 +126,13 @@ services:
     restart: always
     stop_grace_period: 30s
     volumes:
-      - ./guides:/app/guides:ro
+      # Use an absolute host path so the Docker daemon receives the correct
+      # bind-mount source when `docker compose up` is invoked from inside the
+      # updater container.  Relative paths would be resolved against the
+      # container-internal project-directory (/app/deployment), not the real
+      # host directory, causing Docker to create an empty directory on the host
+      # and wipe the guides mount after every upgrade.
+      - ${HOST_COMPOSE_PROJECT_DIR}/guides:/app/guides:ro
     deploy:
       resources:
         limits:
