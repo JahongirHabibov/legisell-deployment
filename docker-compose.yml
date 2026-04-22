@@ -265,8 +265,8 @@ services:
         condition: service_started
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
-      - /root/legisell-deployment/.env:/app/deployment/.env:rw
-      - /root/legisell-deployment/docker-compose.yml:/app/deployment/docker-compose.yml:ro
+      - ${HOST_COMPOSE_PROJECT_DIR}/.env:/app/deployment/.env:rw
+      - ${HOST_COMPOSE_PROJECT_DIR}/docker-compose.yml:/app/deployment/docker-compose.yml:ro
       - legisell-prod-updater-state:/app/state
       - ${DOCKER_CONFIG_DIR:-~/.docker}:/root/.docker:ro
     restart: always
