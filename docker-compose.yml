@@ -125,6 +125,8 @@ services:
       start_period: 30s
     restart: always
     stop_grace_period: 30s
+    volumes:
+      - ./guides:/app/guides:ro
     deploy:
       resources:
         limits:
