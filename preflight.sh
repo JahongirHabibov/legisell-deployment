@@ -257,6 +257,24 @@ if [[ -f "$ENV_FILE" && -s "$ENV_FILE" ]]; then
     fi
   fi
 
+  # Updater service
+  check_var HOST_COMPOSE_PROJECT_DIR "absolute host path to deployment dir (Phase 7 temp-container bind mounts)"
+
+  # HOST_COMPOSE_PROJECT_DIR must be absolute and the directory must exist —
+  # the Docker daemon resolves bind-mount paths on the host, not inside the container
+  HCD_VAL="${HOST_COMPOSE_PROJECT_DIR:-}"
+  if [[ -n "$HCD_VAL" ]] && ! is_placeholder "$HCD_VAL"; then
+    if [[ "$HCD_VAL" != /* ]]; then
+      fail "HOST_COMPOSE_PROJECT_DIR must be an absolute path (got: '${HCD_VAL}')"
+    elif [[ ! -d "$HCD_VAL" ]]; then
+      warn "HOST_COMPOSE_PROJECT_DIR directory does not exist: '${HCD_VAL}'"
+    elif [[ ! -f "$HCD_VAL/.env" ]]; then
+      warn "HOST_COMPOSE_PROJECT_DIR does not contain a .env file: '${HCD_VAL}/.env'"
+    else
+      pass "HOST_COMPOSE_PROJECT_DIR exists and contains .env  ${DIM}(${HCD_VAL})${RESET}"
+    fi
+  fi
+
   # Warn if JWT_SECRET == JWT_REFRESH_SECRET
   JS="${JWT_SECRET:-}"
   JRS="${JWT_REFRESH_SECRET:-}"
