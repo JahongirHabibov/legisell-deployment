@@ -197,9 +197,6 @@ services:
       backend:
         condition: service_healthy
     ports:
-      # Admin UI: reachable only via Tailscale VPN
-      - "${TAILSCALE_LOCAL_IP}:443:443"
-      - "${TAILSCALE_LOCAL_IP}:80:80"
       # POS License API: publicly reachable (Nginx restricts to /api/v1/pos/ and /api/public/)
       - "0.0.0.0:8443:8443"
     volumes:
@@ -208,6 +205,23 @@ services:
       frontend-network:
         aliases:
           - legisell-frontend
+      proxy-network:
+    labels:
+      - "traefik.enable=true"
+
+      # ── Legisell Admin UI (VPN-only via Tailscale IP whitelist) ─────────────
+      - "traefik.http.routers.legisell-admin.rule=Host(`admin.${DOMAIN}`)"
+      - "traefik.http.routers.legisell-admin.entrypoints=websecure"
+      - "traefik.http.routers.legisell-admin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.legisell-admin.service=legisell-admin-svc"
+      
+      # Security headers & restriction to Tailscale clients only (100.64.0.0/10)
+      - "traefik.http.routers.legisell-admin.middlewares=security-headers@file,compress@file,legisell-ts-only"
+      - "traefik.http.middlewares.legisell-ts-only.ipallowlist.sourcerange=100.64.0.0/10"
+
+      # Proxy to frontend container port 443 over HTTPS
+      - "traefik.http.services.legisell-admin-svc.loadbalancer.server.port=443"
+      - "traefik.http.services.legisell-admin-svc.loadbalancer.server.scheme=https"
     restart: always
     deploy:
       resources:
@@ -311,3 +325,6 @@ networks:
   backend-network:
     name: legisell-prod-backend-network
     driver: bridge
+  proxy-network:
+    external: true
+    name: proxy-network
