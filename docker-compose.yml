@@ -209,14 +209,21 @@ services:
     labels:
       - "traefik.enable=true"
 
-      # ── Legisell Admin UI (VPN-only via Tailscale IP whitelist) ─────────────
-      - "traefik.http.routers.legisell-admin.rule=Host(`admin.${DOMAIN}`) || Host(`${TAILSCALE_LOCAL_IP}`)"
+      # ── Router for Domain (with Let's Encrypt SSL) ──────────────────────────
+      - "traefik.http.routers.legisell-admin.rule=Host(`admin.${DOMAIN}`)"
       - "traefik.http.routers.legisell-admin.entrypoints=websecure"
       - "traefik.http.routers.legisell-admin.tls.certresolver=letsencrypt"
       - "traefik.http.routers.legisell-admin.service=legisell-admin-svc"
-      
-      # Security headers & restriction to Tailscale clients only (100.64.0.0/10)
       - "traefik.http.routers.legisell-admin.middlewares=security-headers@file,compress@file,legisell-ts-only"
+
+      # ── Router for Direct Tailscale IP (no Let's Encrypt, self-signed SSL) ──
+      - "traefik.http.routers.legisell-admin-ip.rule=Host(`${TAILSCALE_LOCAL_IP}`)"
+      - "traefik.http.routers.legisell-admin-ip.entrypoints=websecure"
+      - "traefik.http.routers.legisell-admin-ip.tls=true"
+      - "traefik.http.routers.legisell-admin-ip.service=legisell-admin-svc"
+      - "traefik.http.routers.legisell-admin-ip.middlewares=security-headers@file,compress@file,legisell-ts-only"
+
+      # ── IP Allowlist Middleware (strictly Tailscale clients only) ───────────
       - "traefik.http.middlewares.legisell-ts-only.ipallowlist.sourcerange=100.64.0.0/10"
 
       # Proxy to frontend container port 443 over HTTPS
