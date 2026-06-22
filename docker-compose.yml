@@ -210,7 +210,7 @@ services:
       - "traefik.enable=true"
 
       # ── Legisell Admin UI (VPN-only via Tailscale IP whitelist) ─────────────
-      - "traefik.http.routers.legisell-admin.rule=Host(`admin.${DOMAIN}`)"
+      - "traefik.http.routers.legisell-admin.rule=Host(`admin.${DOMAIN}`) || Host(`${TAILSCALE_LOCAL_IP}`)"
       - "traefik.http.routers.legisell-admin.entrypoints=websecure"
       - "traefik.http.routers.legisell-admin.tls.certresolver=letsencrypt"
       - "traefik.http.routers.legisell-admin.service=legisell-admin-svc"
