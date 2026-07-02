@@ -34,7 +34,6 @@ nano .env   # fill in every value marked with <...>
 | `IMAGE_BACKEND` | `ghcr.io/<owner>/legisell-backend:<tag>` |
 | `IMAGE_FRONTEND` | `ghcr.io/<owner>/legisell-frontend:<tag>` |
 | `IMAGE_UPDATER` | `ghcr.io/<owner>/legisell-updater:<tag>` |
-| `IMAGE_BACKUP` | `ghcr.io/<owner>/legisell-backup:<tag>` |
 | `TAILSCALE_LOCAL_IP` | `tailscale ip -4` |
 | `POSTGRES_PASSWORD` | `openssl rand -base64 32 \| tr -d '/+=' \| head -c 32` |
 | `REDIS_PASSWORD` | `openssl rand -base64 32 \| tr -d '/+=' \| head -c 32` |
@@ -42,8 +41,6 @@ nano .env   # fill in every value marked with <...>
 | `JWT_REFRESH_SECRET` | `openssl rand -hex 32` (different value) |
 | `SECRETS_ENCRYPTION_KEY` | `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `ADMIN_PASSWORD` | any strong temporary password |
-| `BACKUP_USER` | any username for the backup web UI |
-| `BACKUP_PASSWORD` | any strong password for the backup web UI |
 
 > **`SECRETS_VAULT_PASSWORD_HASH`** must **not** be set in `.env`. Bcrypt hashes contain `$`
 > which Docker Compose misinterprets as variable substitution. Configure it via the Admin UI
@@ -106,7 +103,7 @@ patches `.env`, pulls new images from GHCR, and does a rolling-recreate with rol
 Or manually:
 
 ```sh
-# 1. Edit IMAGE_BACKEND / IMAGE_FRONTEND / IMAGE_UPDATER / IMAGE_BACKUP in .env
+# 1. Edit IMAGE_BACKEND / IMAGE_FRONTEND / IMAGE_UPDATER in .env
 # 2. Pull new images and recreate containers
 docker compose pull
 docker compose up -d
@@ -120,24 +117,27 @@ docker compose up -d
 |------|----------|---------|
 | 443 | `TAILSCALE_LOCAL_IP` | Admin panel (VPN-only) |
 | 80 | `TAILSCALE_LOCAL_IP` | HTTP → HTTPS redirect (VPN-only) |
-| 8400 | `TAILSCALE_LOCAL_IP` | Backup web UI (VPN-only) |
 | 8443 | `0.0.0.0` (public) | POS License API |
 
 ---
 
 ## Backup
 
-PostgreSQL backups run inside the `backup` container with a web UI at:
+PostgreSQL backup/restore is built into the backend + worker and managed from the
+admin panel: **Settings → Backup** (owner-only). It supports manual + scheduled
+backups, download, retention/compression config, and restore (from a stored file
+or an upload) with an automatic safety backup.
 
+Backup files are stored in the `./backups/` directory, bind-mounted into the
+backend and worker. The directory must be writable by uid 1000 (`preflight.sh`
+sets this automatically).
+
+**Break-glass** (restore when the admin web app won't boot):
+
+```sh
+docker compose run --rm --entrypoint python backend backup_cli.py list
+docker compose run --rm --entrypoint python backend backup_cli.py restore <file.dump>
 ```
-http://<TAILSCALE_LOCAL_IP>:8400
-```
-
-This port is bound to `TAILSCALE_LOCAL_IP` — reachable only via Tailscale VPN.
-Log in with `BACKUP_USER` / `BACKUP_PASSWORD` from your `.env`.
-
-Backup files are stored in the `./backups/` directory (bind-mounted into the container).
-Retention, scheduling, and restore operations are managed through the web UI.
 
 ---
 

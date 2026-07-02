@@ -187,12 +187,12 @@ else
   mkdir -p "$BACKUPS_DIR"
   warn "./backups directory did not exist — created it"
 fi
-# The backup container runs as backupuser (UID 1000). Pre-set ownership so the
-# container can write backups and state.json without needing root at runtime.
+# The backend + worker run as appuser (UID 1000) and write dumps here. Pre-set
+# ownership so they can write without needing root at runtime.
 if chown 1000:1000 "$BACKUPS_DIR" 2>/dev/null; then
-  pass "./backups ownership set to UID/GID 1000 (backupuser)"
+  pass "./backups ownership set to UID/GID 1000 (appuser)"
 else
-  warn "Could not chown ./backups to UID 1000 — re-run with sudo or the backup container may get Permission denied"
+  warn "Could not chown ./backups to UID 1000 — re-run with sudo or backup/restore may get Permission denied"
 fi
 
 # ---------------------------------------------------------------------------
@@ -220,7 +220,6 @@ if [[ -f "$ENV_FILE" && -s "$ENV_FILE" ]]; then
   check_var IMAGE_BACKEND       "GHCR backend image"
   check_var IMAGE_FRONTEND      "GHCR frontend image"
   check_var IMAGE_UPDATER       "GHCR updater image"
-  check_var IMAGE_BACKUP        "GHCR backup image"
 
   # Network
   check_var TAILSCALE_LOCAL_IP  "Tailscale private IPv4"
@@ -244,12 +243,9 @@ if [[ -f "$ENV_FILE" && -s "$ENV_FILE" ]]; then
   check_var ADMIN_PASSWORD      "initial admin password"
   check_var ADMIN_EMAIL         "initial admin e-mail"
 
-  # Backup service
-  check_var BACKUP_USER         "backup web UI username"
-  check_var BACKUP_PASSWORD     "backup web UI password"
-  check_var BACKUP_DIR          "absolute container-side path for backup files"
-
-  # BACKUP_DIR must be absolute — the Pydantic validator in the image enforces this
+  # Backup / Restore is now built into the backend + worker (owner-only Backup
+  # tab). BACKUP_DIR is optional (defaults to /backups); if set it must be
+  # absolute — the Pydantic validator in the image enforces this too.
   BACKUP_DIR_VAL="${BACKUP_DIR:-}"
   if [[ -n "$BACKUP_DIR_VAL" ]] && ! is_placeholder "$BACKUP_DIR_VAL"; then
     if [[ "$BACKUP_DIR_VAL" != /* ]]; then
@@ -350,7 +346,7 @@ fi
 #
 # The admin panel (80/443) is served by the SEPARATE proxy stack (Traefik +
 # Tailscale). This deployment only attaches to its shared external network and
-# publishes 8443 (public API) + 8400 (backup UI) itself. The proxy must be up
+# publishes 8443 (public API) itself. The proxy must be up
 # BEFORE this stack, otherwise the external network does not exist.
 # ---------------------------------------------------------------------------
 section "6  Reverse Proxy"
@@ -367,7 +363,7 @@ fi
 #
 # Ports 80/443 are owned by the external proxy (Traefik) and are intentionally
 # NOT checked here — they are expected to be in use once the proxy is running.
-# This stack only binds 8443 (public API) and 8400 (backup UI, Tailscale).
+# This stack only binds 8443 (public API).
 # ---------------------------------------------------------------------------
 section "7  Port Availability"
 
@@ -393,7 +389,6 @@ check_port() {
 }
 
 check_port 8443  "POS License API (public)"
-check_port 8400  "Backup UI (Tailscale only)"
 
 
 

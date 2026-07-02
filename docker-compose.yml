@@ -133,6 +133,10 @@ services:
       # host directory, causing Docker to create an empty directory on the host
       # and wipe the guides mount after every upgrade.
       - ${HOST_COMPOSE_PROJECT_DIR}/guides:/app/guides:ro
+      # Backup dumps — shared with the worker (absorbed backup service).
+      # The host dir must be writable by the container's appuser (uid 1000):
+      #   mkdir -p ${HOST_COMPOSE_PROJECT_DIR}/backups && chown -R 1000:1000 <dir>
+      - ${HOST_COMPOSE_PROJECT_DIR}/backups:/backups
     deploy:
       resources:
         limits:
@@ -154,6 +158,9 @@ services:
     env_file: .env
     environment:
       - APP_ENV=production
+    volumes:
+      # Backup dumps — shared with the backend (scheduled backups run here).
+      - ${HOST_COMPOSE_PROJECT_DIR}/backups:/backups
     networks:
       backend-network:
         aliases:
@@ -242,41 +249,6 @@ services:
         reservations:
           cpus: "0.05"
           memory: 32M
-    logging: *default-logging
-
-  # ===========================================================================
-  # BACKUP — PostgreSQL Backup & Restore (image from GHCR)
-  # No host port: Tailscale now runs inside the proxy stack, so the host no
-  # longer owns TAILSCALE_LOCAL_IP and cannot bind it. The service runs
-  # internally (scheduled dumps keep working); the Web UI is exposed later via
-  # Traefik or absorbed into the admin panel's Backup tab.
-  # To expose the standalone UI via Traefik, add a router (Host(`backup.${DOMAIN}`),
-  # entrypoints=websecure, certresolver=letsencrypt, middlewares=…,legisell-ts-only,
-  # service port 8000) and attach this service to proxy-network.
-  # ===========================================================================
-  backup:
-    image: ${IMAGE_BACKUP}
-    container_name: legisell-prod-backup
-    hostname: legisell-backup
-    env_file: .env
-    networks:
-      backend-network:
-        aliases:
-          - legisell-backup
-    depends_on:
-      database:
-        condition: service_healthy
-    volumes:
-      - /root/legisell-deployment/backups:/backups
-    restart: always
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-        reservations:
-          cpus: "0.1"
-          memory: 64M
     logging: *default-logging
 
   # ===========================================================================
