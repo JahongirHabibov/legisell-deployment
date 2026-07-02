@@ -260,17 +260,10 @@ services:
     container_name: legisell-prod-updater
     hostname: legisell-updater
     env_file: .env
-    # The upgrader defaults target the old two-file layout (.env.prod /
-    # docker-compose.prod.yml / project saas-license-manager-prod). This stack
-    # uses a single .env + docker-compose.yml under project legisell-prod, so
-    # point the updater at the correct files/project — otherwise Phase 1 fails
-    # with "No such file or directory: /app/deployment/.env.prod" and later
-    # phases would target the wrong compose project.
-    environment:
-      - DEPLOYMENT_ENV=/app/deployment/.env
-      - COMPOSE_FILES=/app/deployment/docker-compose.yml
-      - COMPOSE_PROJECT_NAME=legisell-prod
-      - MANAGED_SERVICES=backend,worker,frontend
+    # No updater config overrides needed: its defaults match this layout
+    # (/app/deployment/.env + docker-compose.yml) and it derives the compose
+    # project from this file's top-level `name: legisell-prod`. Requires the
+    # updater image built from the fixed upgrader (see saas-license-manager).
     networks:
       backend-network:
         aliases:
