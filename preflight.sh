@@ -346,9 +346,30 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Port availability
+# 6. Reverse proxy (external Traefik network)
+#
+# The admin panel (80/443) is served by the SEPARATE proxy stack (Traefik +
+# Tailscale). This deployment only attaches to its shared external network and
+# publishes 8443 (public API) + 8400 (backup UI) itself. The proxy must be up
+# BEFORE this stack, otherwise the external network does not exist.
 # ---------------------------------------------------------------------------
-section "6  Port Availability"
+section "6  Reverse Proxy"
+
+PROXY_NET="${NETWORK_NAME:-proxy-network}"
+if docker network inspect "$PROXY_NET" &>/dev/null; then
+  pass "external network '${PROXY_NET}' exists (proxy stack is up)"
+else
+  fail "external network '${PROXY_NET}' not found — start the proxy stack first (docker compose up -d in the proxy repo)"
+fi
+
+# ---------------------------------------------------------------------------
+# 7. Port availability
+#
+# Ports 80/443 are owned by the external proxy (Traefik) and are intentionally
+# NOT checked here — they are expected to be in use once the proxy is running.
+# This stack only binds 8443 (public API) and 8400 (backup UI, Tailscale).
+# ---------------------------------------------------------------------------
+section "7  Port Availability"
 
 check_port() {
   local port="$1"
@@ -371,8 +392,6 @@ check_port() {
   fi
 }
 
-check_port 80    "HTTP → HTTPS redirect (Tailscale only)"
-check_port 443   "Admin HTTPS (Tailscale only)"
 check_port 8443  "POS License API (public)"
 check_port 8400  "Backup UI (Tailscale only)"
 
