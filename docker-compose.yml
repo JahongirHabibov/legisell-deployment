@@ -208,6 +208,10 @@ services:
       proxy-network:
     labels:
       - "traefik.enable=true"
+      # Pin the network Traefik resolves the container IP on. Without this,
+      # Traefik can cache a stale IP after the frontend (or proxy-network) is
+      # recreated → routes to a dead IP → 30s timeouts on every request.
+      - "traefik.docker.network=proxy-network"
 
       # ── Router for Domain (with Let's Encrypt SSL) ──────────────────────────
       - "traefik.http.routers.legisell-admin.rule=Host(`admin.${DOMAIN}`)"
