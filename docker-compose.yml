@@ -241,16 +241,20 @@ services:
     logging: *default-logging
 
   # ===========================================================================
-  # BACKUP — PostgreSQL Backup & Restore Web UI (image from GHCR)
-  # Reachable at http://<TAILSCALE_LOCAL_IP>:8400 — VPN-only
+  # BACKUP — PostgreSQL Backup & Restore (image from GHCR)
+  # No host port: Tailscale now runs inside the proxy stack, so the host no
+  # longer owns TAILSCALE_LOCAL_IP and cannot bind it. The service runs
+  # internally (scheduled dumps keep working); the Web UI is exposed later via
+  # Traefik or absorbed into the admin panel's Backup tab.
+  # To expose the standalone UI via Traefik, add a router (Host(`backup.${DOMAIN}`),
+  # entrypoints=websecure, certresolver=letsencrypt, middlewares=…,legisell-ts-only,
+  # service port 8000) and attach this service to proxy-network.
   # ===========================================================================
   backup:
     image: ${IMAGE_BACKUP}
     container_name: legisell-prod-backup
     hostname: legisell-backup
     env_file: .env
-    ports:
-      - "${TAILSCALE_LOCAL_IP}:8400:8000"
     networks:
       backend-network:
         aliases:
