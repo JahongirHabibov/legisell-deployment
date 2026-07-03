@@ -247,6 +247,7 @@ services:
       # Proxy to frontend container port 443 over HTTPS
       - "traefik.http.services.legisell-admin-svc.loadbalancer.server.port=443"
       - "traefik.http.services.legisell-admin-svc.loadbalancer.server.scheme=https"
+      - "traefik.http.services.legisell-admin-svc.loadbalancer.serverstransport=legisell-internal@file"
 
       # ── Router for Public POS License API (api.<domain>:8443) ───────────────
       # Public — NO tailscale allowlist. Path restriction (/api/v1/pos/,
@@ -264,6 +265,7 @@ services:
       # public-path allowlist on this server block.
       - "traefik.http.services.legisell-api-svc.loadbalancer.server.port=8443"
       - "traefik.http.services.legisell-api-svc.loadbalancer.server.scheme=https"
+      - "traefik.http.services.legisell-api-svc.loadbalancer.serverstransport=legisell-internal@file"
     restart: always
     deploy:
       resources:
