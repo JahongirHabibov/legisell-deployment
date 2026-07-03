@@ -8,10 +8,11 @@
 #   cp .env.example .env && nano .env
 #   docker compose up -d
 #
-# Network layout:
-#   Port 443  → TAILSCALE_LOCAL_IP only  → Admin panel (VPN-only)
-#   Port 80   → TAILSCALE_LOCAL_IP only  → HTTP → HTTPS redirect (VPN-only)
-#   Port 8443 → 0.0.0.0 (public)        → POS License API
+# Network layout (all public TLS terminated + auto-renewed by Traefik proxy stack):
+#   Port 443  → Traefik websecure  → nginx:443  → Admin panel (VPN-only, ts allowlist)
+#   Port 80   → Traefik web        → HTTP→HTTPS redirect + ACME HTTP-01 challenge
+#   Port 8443 → Traefik poslicense → nginx:8443 → POS License API (public, path-restricted)
+# This stack publishes NO host ports; Traefik reaches nginx over the proxy-network.
 
 name: legisell-prod
 
@@ -191,9 +192,11 @@ services:
   # ===========================================================================
   # FRONTEND — Nginx (static build, no Node runtime; image from GHCR)
   #
-  # Two port bindings implement network-level access control:
-  #   443/80  → Tailscale IP only  → Admin panel (invisible from public internet)
-  #   8443    → all interfaces     → POS License API only
+  # No host ports. Traefik (proxy stack) fronts both routes over the proxy-network:
+  #   admin.<domain>:443  → nginx:443  (VPN-only via ts allowlist middleware)
+  #   api.<domain>:8443   → nginx:8443 (public; nginx enforces path allowlist)
+  # nginx still enforces the /api/v1/pos/ + /api/public/ allowlist on its 8443
+  # server block, so exposing all of api.<domain> through Traefik stays safe.
   # ===========================================================================
   frontend:
     image: ${IMAGE_FRONTEND}
@@ -203,9 +206,13 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    ports:
-      # POS License API: publicly reachable (Nginx restricts to /api/v1/pos/ and /api/public/)
-      - "0.0.0.0:8443:8443"
+    # No host port bindings: Traefik (proxy stack) terminates public TLS on 443
+    # (admin) and 8443 (POS-API) and proxies to this container over the
+    # proxy-network. This closes the last direct-bind path — the old
+    # `0.0.0.0:8443:8443` nginx-terminated TLS with a static cert that had no
+    # renewal automation and expired. Cert lifecycle is now fully ACME-managed
+    # by Traefik. The mounted cert below is a long-lived self-signed cert used
+    # only for the internal Traefik→nginx hop (accepted via insecureSkipVerify).
     volumes:
       - ${SSL_CERT_DIR:-/root/legisell-deployment/ssl}:/etc/nginx/ssl:ro
     networks:
@@ -240,6 +247,23 @@ services:
       # Proxy to frontend container port 443 over HTTPS
       - "traefik.http.services.legisell-admin-svc.loadbalancer.server.port=443"
       - "traefik.http.services.legisell-admin-svc.loadbalancer.server.scheme=https"
+
+      # ── Router for Public POS License API (api.<domain>:8443) ───────────────
+      # Public — NO tailscale allowlist. Path restriction (/api/v1/pos/,
+      # /api/public/) is enforced inside nginx's 8443 server block, so all of
+      # api.<domain> is safe to route here. TLS cert issued + auto-renewed by
+      # Traefik ACME (letsencrypt resolver, HTTP-01 on :80).
+      - "traefik.http.routers.legisell-api.rule=Host(`api.${DOMAIN}`)"
+      - "traefik.http.routers.legisell-api.entrypoints=poslicense"
+      - "traefik.http.routers.legisell-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.legisell-api.service=legisell-api-svc"
+      - "traefik.http.routers.legisell-api.middlewares=security-headers@file,compress@file,rate-limit@file"
+
+      # Proxy to frontend container port 8443 over HTTPS (self-signed internal
+      # cert, accepted via serversTransport insecureSkipVerify). nginx keeps its
+      # public-path allowlist on this server block.
+      - "traefik.http.services.legisell-api-svc.loadbalancer.server.port=8443"
+      - "traefik.http.services.legisell-api-svc.loadbalancer.server.scheme=https"
     restart: always
     deploy:
       resources:
