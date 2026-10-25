@@ -68,9 +68,15 @@ services:
     container_name: legisell-prod-redis
     hostname: legisell-redis
     # Maxmemory capped at 128 MB with LRU eviction; password appended only when set.
+    # PARTNER_REDIS_PASSWORD adds the partner portal's ACL user: only keys
+    # legisell:partner:*, only the commands it uses (no KEYS, FLUSH*, CONFIG).
     command: >-
-      sh -c "redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
-      $${REDIS_PASSWORD:+--requirepass $$REDIS_PASSWORD}"
+      sh -c 'set -- redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru;
+      [ -n "$$REDIS_PASSWORD" ] && set -- "$$@" --requirepass "$$REDIS_PASSWORD";
+      [ -n "$$PARTNER_REDIS_PASSWORD" ] && set -- "$$@" --user partner on ">$$PARTNER_REDIS_PASSWORD"
+      "~legisell:partner:*" resetchannels -@all +get +set +del +incr +incrby +expire +exists +ping +hello +select
+      "+client|setinfo" "+client|setname";
+      exec "$$@"'
     env_file: .env
     volumes:
       - legisell-redis-data:/data
@@ -266,6 +272,18 @@ services:
       - "traefik.http.services.legisell-api-svc.loadbalancer.server.port=8443"
       - "traefik.http.services.legisell-api-svc.loadbalancer.server.scheme=https"
       - "traefik.http.services.legisell-api-svc.loadbalancer.serverstransport=legisell-internal@file"
+
+      # support.<domain> — the partner portal, public on 443. nginx (8443 block
+      # support.legisell.de) serves the portal build and forwards /api/partner/
+      # to legisell-partner-api only; every other /api/ path is a 404 there.
+      - "traefik.http.routers.legisell-support.rule=Host(`support.${DOMAIN}`)"
+      - "traefik.http.routers.legisell-support.entrypoints=websecure"
+      - "traefik.http.routers.legisell-support.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.legisell-support.service=legisell-support-svc"
+      - "traefik.http.routers.legisell-support.middlewares=security-headers@file,compress@file,rate-limit@file"
+      - "traefik.http.services.legisell-support-svc.loadbalancer.server.port=8443"
+      - "traefik.http.services.legisell-support-svc.loadbalancer.server.scheme=https"
+      - "traefik.http.services.legisell-support-svc.loadbalancer.serverstransport=legisell-internal@file"
     restart: always
     deploy:
       resources:
@@ -275,6 +293,58 @@ services:
         reservations:
           cpus: "0.05"
           memory: 32M
+    logging: *default-logging
+
+  # ===========================================================================
+  # PARTNER API — public partner portal backend (support.<domain>)
+  #
+  # Same image as the backend, LEGISELL_APP_MODE=partner. Its OWN env file
+  # (.env.partner): it must never see .env — the app refuses to start when
+  # admin secrets are present. Own DB role (legisell_partner, created by the
+  # backend at start from PARTNER_DB_PASSWORD), own Redis ACL user, own token
+  # key; support sessions and ticket photos only through the backend's signed
+  # bridge. Reached only by nginx (frontend-network).
+  # ===========================================================================
+  partner-api:
+    image: ${IMAGE_BACKEND}
+    container_name: legisell-prod-partner-api
+    hostname: legisell-partner-api
+    env_file: .env.partner
+    environment:
+      - LEGISELL_APP_MODE=partner
+      - APP_ENV=production
+      - WORKERS=2
+    networks:
+      frontend-network:
+        aliases:
+          - legisell-partner-api
+      backend-network:
+        aliases:
+          - legisell-partner-api
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: always
+    stop_grace_period: 15s
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 384M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
     logging: *default-logging
 
   # ===========================================================================

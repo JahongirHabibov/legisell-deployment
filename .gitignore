@@ -11,3 +11,4 @@ guides
 ssl/*.pem
 ssl/fullchain.*
 ssl/privkey.*
+.env.partner
