@@ -376,6 +376,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - ${HOST_COMPOSE_PROJECT_DIR}/.env:/app/deployment/.env:rw
       - ${HOST_COMPOSE_PROJECT_DIR}/docker-compose.yml:/app/deployment/docker-compose.yml:ro
+      # partner-api names `env_file: .env.partner`: without it here the updater
+      # cannot read this compose file and every upgrade stops in the preflight.
+      # Read-only — the updater only needs it to recreate partner-api.
+      - ${HOST_COMPOSE_PROJECT_DIR}/.env.partner:/app/deployment/.env.partner:ro
       - legisell-prod-updater-state:/app/state
       - ${DOCKER_CONFIG_DIR:-~/.docker}:/root/.docker:ro
     restart: always
