@@ -276,7 +276,7 @@ services:
       # support.<domain> — the partner portal, public on 443. nginx (8443 block
       # support.legisell.de) serves the portal build and forwards /api/partner/
       # to legisell-partner-api only; every other /api/ path is a 404 there.
-      - "traefik.http.routers.legisell-support.rule=Host(`support.${DOMAIN}`)"
+      - "traefik.http.routers.legisell-support.rule=Host(`support.kassio-pos.de`) || Host(`support.${DOMAIN}`)"
       - "traefik.http.routers.legisell-support.entrypoints=websecure"
       - "traefik.http.routers.legisell-support.tls.certresolver=letsencrypt"
       - "traefik.http.routers.legisell-support.service=legisell-support-svc"
